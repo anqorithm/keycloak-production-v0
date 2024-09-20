@@ -1,0 +1,77 @@
+services:
+  nginx:
+    image: nginx:${NGINX_VERSION:-latest}
+    container_name: ${NGINX_CONTAINER_NAME:-nginx}
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+      - "${NGINX_HTTPS_PORT:-443}:443"
+    volumes:
+      - ${NGINX_CONF_DIR:-./nginx/conf.d}:/etc/nginx/conf.d
+      - ${NGINX_SSL_DIR:-./nginx/ssl}:/etc/nginx/ssl
+      - ${CERTBOT_WWW_DIR:-./certbot/www}:/var/www/certbot
+    depends_on:
+      - keycloak
+    restart: unless-stopped
+    networks:
+      - keycloak-network
+
+  certbot:
+    image: certbot/certbot:${CERTBOT_VERSION:-latest}
+    container_name: ${CERTBOT_CONTAINER_NAME:-certbot}
+    volumes:
+      - ${CERTBOT_WWW_DIR:-./certbot/www}:/var/www/certbot
+      - ${CERTBOT_CONF_DIR:-./certbot/conf}:/etc/letsencrypt
+    command: certonly --webroot -w /var/www/certbot --force-renewal --email ${SSL_EMAIL:-ssl@anqorithm.com} -d ${DOMAIN:-anqorithm.com} --agree-tos
+    depends_on:
+      - nginx
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:${KEYCLOAK_VERSION:-latest}
+    container_name: ${KEYCLOAK_CONTAINER_NAME:-keycloak}
+    env_file: ${ENV_FILE:-.env}
+    environment:
+      - KEYCLOAK_ADMIN=${KEYCLOAK_ADMIN}
+      - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD}
+      - KC_DB=postgres
+      - KC_DB_URL_HOST=${DB_HOST:-postgres}
+      - KC_DB_URL_DATABASE=${POSTGRES_DB}
+      - KC_DB_USERNAME=${POSTGRES_USER}
+      - KC_DB_PASSWORD=${POSTGRES_PASSWORD}
+      - KC_PROXY=${KC_PROXY:-edge}
+      - KC_HOSTNAME_STRICT=${KC_HOSTNAME_STRICT:-false}
+      - KC_HOSTNAME_STRICT_HTTPS=${KC_HOSTNAME_STRICT_HTTPS:-false}
+    depends_on:
+      - postgres
+    volumes:
+      - keycloak_data:/opt/keycloak/data
+      - ${KEYCLOAK_THEMES_DIR:-./keycloak/themes}:/opt/keycloak/themes
+    networks:
+      - keycloak-network
+    command: 
+      - start
+      - --optimized
+
+  postgres:
+    image: postgres:${POSTGRES_VERSION:-latest}
+    container_name: ${POSTGRES_CONTAINER_NAME:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    env_file: ${ENV_FILE:-.env}
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    restart: unless-stopped
+    networks:
+      - keycloak-network
+
+volumes:
+  keycloak_data:
+    name: ${KEYCLOAK_DATA_VOLUME:-keycloak_data}
+  postgres_data:
+    name: ${POSTGRES_DATA_VOLUME:-keycloak_postgres_data}
+
+networks:
+  keycloak-network:
+    name: ${NETWORK_NAME:-keycloak-network}
+    driver: ${NETWORK_DRIVER:-bridge}
